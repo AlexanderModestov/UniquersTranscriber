@@ -103,18 +103,9 @@ app.post('/upload', upload.single('file'), async (req, res) => {
       downloadUrl: `/download/${encodeURIComponent(`${baseName}.txt`)}`
     });
 
-  } catch (error) {
-    console.error('Transcription error:', error);
-    
-    // Clean up file on error
-    if (req.file) {
-      await fs.remove(req.file.path).catch(() => {});
-    }
-    
-    res.status(500).json({ 
-      error: 'Transcription failed', 
-      details: error.message 
-    });
+  } catch (err) {
+    console.error('Upload error:', err);
+    res.status(500).json({ error: 'Internal Server Error', details: err.message });
   }
 });
 
