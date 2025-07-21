@@ -142,33 +142,64 @@ class TranscriptionApp {
 
     async uploadSingleFile(formData) {
         try {
+            console.log('Starting single file upload workflow');
             this.updateProgress(10, 'Uploading file...');
             
+            console.log('Sending POST request to /upload');
             const response = await fetch('/upload', {
                 method: 'POST',
                 body: formData
             });
 
+            console.log('Response received:', {
+                status: response.status,
+                statusText: response.statusText,
+                ok: response.ok
+            });
+
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                let errorDetails = `HTTP ${response.status}: ${response.statusText}`;
+                try {
+                    const errorData = await response.json();
+                    console.log('Server error response:', errorData);
+                    errorDetails += ` - ${errorData.error || 'Unknown error'}`;
+                    if (errorData.details) {
+                        errorDetails += ` (${errorData.details})`;
+                    }
+                } catch (parseError) {
+                    console.log('Failed to parse error response as JSON:', parseError);
+                    const errorText = await response.text();
+                    console.log('Raw error response:', errorText);
+                    errorDetails += ` - ${errorText}`;
+                }
+                throw new Error(errorDetails);
             }
 
             this.updateProgress(50, 'Transcribing...');
             
+            console.log('Parsing successful response');
             const result = await response.json();
+            console.log('Parsed result:', result);
             
             if (result.success) {
+                console.log('Transcription successful, showing results');
                 this.updateProgress(100, 'Complete!');
                 setTimeout(() => {
                     this.showResults([result]);
                     this.hideProgress();
                 }, 1000);
             } else {
-                throw new Error(result.error || 'Transcription failed');
+                const errorMsg = result.error || 'Transcription failed';
+                console.log('Transcription failed:', errorMsg);
+                throw new Error(errorMsg);
             }
 
         } catch (error) {
-            console.error('Upload error:', error);
+            console.error('Upload workflow error:', {
+                message: error.message,
+                stack: error.stack,
+                name: error.name
+            });
             this.showError(`Upload failed: ${error.message}`);
             this.hideProgress();
         }
@@ -176,36 +207,73 @@ class TranscriptionApp {
 
     async uploadBatchFiles(formData) {
         try {
+            console.log('Starting batch file upload workflow');
             this.updateProgress(10, 'Uploading files...');
             
+            console.log('Sending POST request to /upload/batch');
             const response = await fetch('/upload/batch', {
                 method: 'POST',
                 body: formData
             });
 
+            console.log('Batch response received:', {
+                status: response.status,
+                statusText: response.statusText,
+                ok: response.ok
+            });
+
             if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                let errorDetails = `HTTP ${response.status}: ${response.statusText}`;
+                try {
+                    const errorData = await response.json();
+                    console.log('Server error response:', errorData);
+                    errorDetails += ` - ${errorData.error || 'Unknown error'}`;
+                    if (errorData.details) {
+                        errorDetails += ` (${errorData.details})`;
+                    }
+                } catch (parseError) {
+                    console.log('Failed to parse error response as JSON:', parseError);
+                    const errorText = await response.text();
+                    console.log('Raw error response:', errorText);
+                    errorDetails += ` - ${errorText}`;
+                }
+                throw new Error(errorDetails);
             }
 
             this.updateProgress(50, 'Transcribing files...');
             
+            console.log('Parsing successful batch response');
             const result = await response.json();
+            console.log('Parsed batch result:', result);
             
             if (result.success) {
+                console.log('Batch transcription completed:', {
+                    totalProcessed: result.totalProcessed,
+                    totalErrors: result.totalErrors,
+                    resultsCount: result.results?.length || 0,
+                    errorsCount: result.errors?.length || 0
+                });
                 this.updateProgress(100, 'Complete!');
                 setTimeout(() => {
                     this.showResults(result.results);
                     if (result.errors && result.errors.length > 0) {
+                        console.log('Some files had errors:', result.errors);
                         this.showErrors(result.errors);
                     }
                     this.hideProgress();
                 }, 1000);
             } else {
-                throw new Error(result.error || 'Batch transcription failed');
+                const errorMsg = result.error || 'Batch transcription failed';
+                console.log('Batch transcription failed:', errorMsg);
+                throw new Error(errorMsg);
             }
 
         } catch (error) {
-            console.error('Batch upload error:', error);
+            console.error('Batch upload workflow error:', {
+                message: error.message,
+                stack: error.stack,
+                name: error.name
+            });
             this.showError(`Batch upload failed: ${error.message}`);
             this.hideProgress();
         }

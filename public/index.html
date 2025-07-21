@@ -1,1 +1,68 @@
-<h1>Hello, World!</h1>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Uniquers Transcription</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Uniquers Transcription</h1>
+            <p>Upload your audio and video files for fast, accurate transcription</p>
+        </header>
+
+        <main>
+            <section class="upload-section">
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-content">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                        <h3>Drag & Drop Files Here</h3>
+                        <p>or click to browse</p>
+                        <p class="file-types">Supported: MP3, MP4, WAV, M4A, AAC, AVI, MOV, WMV, FLV, OGG, WEBM</p>
+                        <p class="file-limit">Max file size: 100MB</p>
+                    </div>
+                </div>
+
+                <input type="file" id="fileInput" multiple accept="audio/*,video/*" style="display: none;">
+
+                <div class="upload-controls">
+                    <button id="uploadBtn" class="btn btn-primary" disabled>
+                        <i class="fas fa-upload"></i>
+                        Upload & Transcribe
+                    </button>
+                    <button id="clearBtn" class="btn btn-secondary" disabled>
+                        <i class="fas fa-trash"></i>
+                        Clear Files
+                    </button>
+                </div>
+            </section>
+
+            <section id="progressSection" class="progress-section" style="display: none;">
+                <h3>Transcription Progress</h3>
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div id="progressFill" class="progress-fill"></div>
+                    </div>
+                    <div id="progressText" class="progress-text">0%</div>
+                </div>
+                <div id="fileProgress" class="file-progress">Waiting...</div>
+            </section>
+
+            <section id="resultsSection" class="results-section" style="display: none;">
+                <h3>Transcription Results</h3>
+                <div id="resultsContainer"></div>
+            </section>
+
+            <section id="errorSection" class="error-section" style="display: none;">
+                <h3>Errors</h3>
+                <div id="errorContainer"></div>
+            </section>
+        </main>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

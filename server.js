@@ -50,13 +50,22 @@ const upload = multer({
     const allowedTypes = [
       'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/m4a', 'audio/aac',
       'video/mp4', 'video/avi', 'video/mov', 'video/wmv', 'video/flv',
-      'audio/ogg', 'video/webm'
+      'audio/ogg', 'video/webm', 'audio/x-m4a', 'video/x-msvideo',
+      'audio/mp4', 'video/quicktime', 'audio/x-wav', 'audio/wave',
+      'audio/x-aac', 'application/octet-stream'
     ];
     
-    if (allowedTypes.includes(file.mimetype)) {
+    const allowedExtensions = [
+      '.mp3', '.wav', '.m4a', '.aac', '.mp4', '.avi', '.mov', 
+      '.wmv', '.flv', '.ogg', '.webm'
+    ];
+    
+    const fileExtension = path.extname(file.originalname).toLowerCase();
+    
+    if (allowedTypes.includes(file.mimetype) || allowedExtensions.includes(fileExtension)) {
       cb(null, true);
     } else {
-      cb(new Error('Unsupported file type'), false);
+      cb(new Error(`Unsupported file type: ${file.mimetype} (${file.originalname})`), false);
     }
   }
 });
@@ -67,101 +76,211 @@ app.get('/', (req, res) => {
 });
 
 // Upload and transcribe single file
-app.post('/upload', upload.single('file'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
+app.post('/upload', (req, res) => {
+  upload.single('file')(req, res, async (err) => {
+    if (err) {
+      console.error('Multer error:', err);
+      return res.status(400).json({ error: err.message });
     }
-
-    const filePath = req.file.path;
-    const originalName = req.file.originalname;
-    const baseName = path.parse(originalName).name;
-
-    // Upload to AssemblyAI
-    const audioFile = await client.files.upload(filePath);
     
-    // Create transcription
-    const transcript = await client.transcripts.create({
-      audio: audioFile,
-      speaker_labels: true
-    });
+    try {
+      console.log('=== Starting upload workflow ===');
+      
+      if (!req.file) {
+        console.log('ERROR: No file uploaded');
+        return res.status(400).json({ error: 'No file uploaded' });
+      }
 
-    // Wait for completion
-    let finalTranscript = await client.transcripts.wait(transcript.id);
+      const filePath = req.file.path;
+      const originalName = req.file.originalname;
+      const baseName = path.parse(originalName).name;
 
-    // Save transcription to file
-    const transcriptionPath = path.join(transcriptionsDir, `${baseName}.txt`);
-    await fs.writeFile(transcriptionPath, finalTranscript.text);
+      console.log('STEP 1: File received:', {
+        originalName,
+        filePath,
+        fileSize: req.file.size,
+        mimeType: req.file.mimetype
+      });
+      
+      // Upload to AssemblyAI
+      console.log('STEP 2: Uploading file to AssemblyAI...');
+      const audioFile = await client.files.upload(filePath);
+      console.log('STEP 2: File uploaded successfully to AssemblyAI:', {
+        uploadUrl: audioFile,
+        fileName: originalName
+      });
+      
+      // Create transcription
+      console.log('STEP 3: Creating transcription request...');
+      const transcript = await client.transcripts.create({
+        audio_url: audioFile,
+        speaker_labels: true
+      });
+      console.log('STEP 3: Transcription request created:', {
+        transcriptId: transcript.id,
+        status: transcript.status
+      });
 
-    // Clean up uploaded file
-    await fs.remove(filePath);
+      // Wait for completion
+      console.log('STEP 4: Waiting for transcription to complete...');
+      let finalTranscript = await client.transcripts.waitUntilReady(transcript.id);
+      console.log('STEP 4: Transcription completed:', {
+        transcriptId: finalTranscript.id,
+        status: finalTranscript.status,
+        textLength: finalTranscript.text?.length || 0
+      });
 
-    res.json({
-      success: true,
-      transcription: finalTranscript.text,
-      filename: `${baseName}.txt`,
-      downloadUrl: `/download/${encodeURIComponent(`${baseName}.txt`)}`
-    });
+      // Save transcription to file
+      console.log('STEP 5: Saving transcription to file...');
+      const transcriptionPath = path.join(transcriptionsDir, `${baseName}.txt`);
+      await fs.writeFile(transcriptionPath, finalTranscript.text);
+      console.log('STEP 5: Transcription saved to:', transcriptionPath);
 
-  } catch (err) {
-    console.error('Upload error:', err);
-    res.status(500).json({ error: 'Internal Server Error', details: err.message });
-  }
+      // Clean up uploaded file
+      console.log('STEP 6: Cleaning up uploaded file...');
+      await fs.remove(filePath);
+      console.log('STEP 6: Uploaded file cleaned up');
+
+      console.log('=== Upload workflow completed successfully ===');
+      res.json({
+        success: true,
+        transcription: finalTranscript.text,
+        filename: `${baseName}.txt`,
+        downloadUrl: `/download/${encodeURIComponent(`${baseName}.txt`)}`
+      });
+
+    } catch (err) {
+      console.error('Upload error details:', {
+        message: err.message,
+        stack: err.stack,
+        name: err.name,
+        code: err.code,
+        fileName: req.file?.originalname || 'unknown'
+      });
+      
+      // Clean up uploaded file on error
+      if (req.file && req.file.path) {
+        await fs.remove(req.file.path).catch(cleanupErr => {
+          console.error('Failed to clean up file after error:', cleanupErr);
+        });
+      }
+      
+      res.status(500).json({ 
+        error: 'Internal Server Error', 
+        details: err.message,
+        code: err.code || 'UNKNOWN_ERROR',
+        fileName: req.file?.originalname || 'unknown'
+      });
+    }
+  });
 });
 
 // Batch upload and transcribe
-app.post('/upload/batch', upload.array('files', 10), async (req, res) => {
-  try {
-    if (!req.files || req.files.length === 0) {
-      return res.status(400).json({ error: 'No files uploaded' });
+app.post('/upload/batch', (req, res) => {
+  upload.array('files', 10)(req, res, async (err) => {
+    if (err) {
+      console.error('Multer error:', err);
+      return res.status(400).json({ error: err.message });
     }
-
-    const results = [];
-    const errors = [];
-
-    for (const file of req.files) {
-      try {
-        const filePath = file.path;
-        const originalName = file.originalname;
-        const baseName = path.parse(originalName).name;
-
-        // Upload to AssemblyAI
-        const audioFile = await client.files.upload(filePath);
-        
-        // Create transcription
-        const transcript = await client.transcripts.create({
-          audio: audioFile,
-          speaker_labels: true
-        });
-
-        // Wait for completion
-        const finalTranscript = await client.transcripts.wait(transcript.id);
-
-        // Save transcription to file
-        const transcriptionPath = path.join(transcriptionsDir, `${baseName}.txt`);
-        await fs.writeFile(transcriptionPath, finalTranscript.text);
-
-        // Clean up uploaded file
-        await fs.remove(filePath);
-
-        results.push({
-          originalName,
-          transcription: finalTranscript.text,
-          filename: `${baseName}.txt`,
-          downloadUrl: `/download/${encodeURIComponent(`${baseName}.txt`)}`
-        });
-
-      } catch (error) {
-        console.error(`Error processing ${file.originalname}:`, error);
-        errors.push({
-          filename: file.originalname,
-          error: error.message
-        });
-        
-        // Clean up file on error
-        await fs.remove(file.path).catch(() => {});
+    
+    try {
+      console.log('=== Starting batch upload workflow ===');
+      
+      if (!req.files || req.files.length === 0) {
+        console.log('ERROR: No files uploaded');
+        return res.status(400).json({ error: 'No files uploaded' });
       }
-    }
+
+      console.log('BATCH STEP 1: Files received:', {
+        filesCount: req.files.length,
+        fileNames: req.files.map(f => f.originalname)
+      });
+
+      const results = [];
+      const errors = [];
+
+      for (let i = 0; i < req.files.length; i++) {
+        const file = req.files[i];
+        const fileNum = i + 1;
+        
+        try {
+          console.log(`--- Processing file ${fileNum}/${req.files.length}: ${file.originalname} ---`);
+          
+          const filePath = file.path;
+          const originalName = file.originalname;
+          const baseName = path.parse(originalName).name;
+
+          console.log(`File ${fileNum} - STEP 1: File details:`, {
+            originalName,
+            filePath,
+            fileSize: file.size,
+            mimeType: file.mimetype
+          });
+
+          // Upload to AssemblyAI
+          console.log(`File ${fileNum} - STEP 2: Uploading to AssemblyAI...`);
+          const audioFile = await client.files.upload(filePath);
+          console.log(`File ${fileNum} - STEP 2: Uploaded successfully:`, audioFile);
+          
+          // Create transcription
+          console.log(`File ${fileNum} - STEP 3: Creating transcription...`);
+          const transcript = await client.transcripts.create({
+            audio_url: audioFile,
+            speaker_labels: true
+          });
+          console.log(`File ${fileNum} - STEP 3: Transcription created:`, transcript.id);
+
+          // Wait for completion
+          console.log(`File ${fileNum} - STEP 4: Waiting for completion...`);
+          const finalTranscript = await client.transcripts.waitUntilReady(transcript.id);
+          console.log(`File ${fileNum} - STEP 4: Completed:`, finalTranscript.status);
+
+          // Save transcription to file
+          console.log(`File ${fileNum} - STEP 5: Saving transcription...`);
+          const transcriptionPath = path.join(transcriptionsDir, `${baseName}.txt`);
+          await fs.writeFile(transcriptionPath, finalTranscript.text);
+          console.log(`File ${fileNum} - STEP 5: Saved to:`, transcriptionPath);
+
+          // Clean up uploaded file
+          console.log(`File ${fileNum} - STEP 6: Cleaning up...`);
+          await fs.remove(filePath);
+          console.log(`File ${fileNum} - STEP 6: Cleaned up`);
+
+          results.push({
+            originalName,
+            transcription: finalTranscript.text,
+            filename: `${baseName}.txt`,
+            downloadUrl: `/download/${encodeURIComponent(`${baseName}.txt`)}`
+          });
+
+          console.log(`File ${fileNum} - SUCCESS: ${originalName} processed successfully`);
+
+        } catch (error) {
+          console.error(`File ${fileNum} - ERROR processing ${file.originalname}:`, {
+            message: error.message,
+            stack: error.stack,
+            name: error.name,
+            code: error.code
+          });
+          
+          errors.push({
+            filename: file.originalname,
+            error: error.message
+          });
+          
+          // Clean up file on error
+          await fs.remove(file.path).catch(cleanupErr => {
+            console.error(`Failed to clean up file ${file.originalname}:`, cleanupErr);
+          });
+        }
+      }
+
+    console.log('=== Batch upload workflow completed ===', {
+      totalFiles: req.files.length,
+      successfulFiles: results.length,
+      failedFiles: errors.length,
+      successRate: `${Math.round((results.length / req.files.length) * 100)}%`
+    });
 
     res.json({
       success: true,
@@ -171,13 +290,32 @@ app.post('/upload/batch', upload.array('files', 10), async (req, res) => {
       totalErrors: errors.length
     });
 
-  } catch (error) {
-    console.error('Batch transcription error:', error);
-    res.status(500).json({ 
-      error: 'Batch transcription failed', 
-      details: error.message 
-    });
-  }
+    } catch (error) {
+      console.error('Batch transcription error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+        code: error.code,
+        filesCount: req.files?.length || 0
+      });
+      
+      // Clean up any uploaded files on error
+      if (req.files && req.files.length > 0) {
+        for (const file of req.files) {
+          await fs.remove(file.path).catch(cleanupErr => {
+            console.error(`Failed to clean up file ${file.originalname}:`, cleanupErr);
+          });
+        }
+      }
+      
+      res.status(500).json({ 
+        error: 'Batch transcription failed', 
+        details: error.message,
+        code: error.code || 'UNKNOWN_ERROR',
+        filesCount: req.files?.length || 0
+      });
+    }
+  });
 });
 
 // Download transcription file
