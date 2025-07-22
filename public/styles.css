@@ -203,16 +203,61 @@ main {
 }
 
 .result-header {
-    display: flex;
-    justify-content: between;
-    align-items: center;
-    margin-bottom: 15px;
+    margin-bottom: 20px;
 }
 
 .result-filename {
     font-weight: 600;
     color: #333;
-    flex: 1;
+    font-size: 1.1rem;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+}
+
+.result-message {
+    color: #28a745;
+    font-weight: 500;
+    font-size: 0.9rem;
+}
+
+.result-downloads {
+    margin-top: 15px;
+}
+
+.download-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 12px;
+}
+
+.download-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 15px 10px;
+    background: white;
+    border: 2px solid #e9ecef;
+    border-radius: 8px;
+    text-decoration: none;
+    color: #495057;
+    transition: all 0.3s ease;
+    font-size: 0.85rem;
+    min-height: 70px;
+    justify-content: center;
+}
+
+.download-btn:hover {
+    border-color: #667eea;
+    background: #f8f9ff;
+    color: #667eea;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+}
+
+.download-btn i {
+    font-size: 1.5rem;
+    margin-bottom: 5px;
 }
 
 .result-actions {

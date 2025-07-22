@@ -298,14 +298,38 @@ class TranscriptionApp {
         this.resultsContainer.innerHTML = results.map(result => `
             <div class="result-item">
                 <div class="result-header">
-                    <div class="result-filename">${result.originalName || result.filename}</div>
-                    <div class="result-actions">
-                        <button class="btn btn-small btn-success" onclick="window.open('${result.downloadUrl}', '_blank')">
-                            <i class="fas fa-download"></i> Download
-                        </button>
+                    <div class="result-filename">
+                        <i class="fas fa-check-circle" style="color: #28a745; margin-right: 8px;"></i>
+                        ${result.originalFilename || result.originalName}
+                    </div>
+                    <div class="result-message">Transcription completed successfully!</div>
+                </div>
+                <div class="result-downloads">
+                    <div class="download-grid">
+                        <a href="${result.files?.transcript?.downloadUrl || result.downloadUrl}" class="download-btn" target="_blank">
+                            <i class="fas fa-file-alt"></i>
+                            <span>Plain Text</span>
+                        </a>
+                        ${result.files?.speakers ? `
+                            <a href="${result.files.speakers.downloadUrl}" class="download-btn" target="_blank">
+                                <i class="fas fa-users"></i>
+                                <span>Speakers</span>
+                            </a>
+                        ` : ''}
+                        ${result.files?.timestamps ? `
+                            <a href="${result.files.timestamps.downloadUrl}" class="download-btn" target="_blank">
+                                <i class="fas fa-clock"></i>
+                                <span>Timestamps</span>
+                            </a>
+                        ` : ''}
+                        ${result.files?.fullData ? `
+                            <a href="${result.files.fullData.downloadUrl}" class="download-btn" target="_blank">
+                                <i class="fas fa-code"></i>
+                                <span>Full Data (JSON)</span>
+                            </a>
+                        ` : ''}
                     </div>
                 </div>
-                <div class="result-text">${this.escapeHtml(result.transcription)}</div>
             </div>
         `).join('');
         

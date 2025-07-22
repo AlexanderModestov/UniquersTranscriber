@@ -114,7 +114,9 @@ app.post('/upload', (req, res) => {
       console.log('STEP 3: Creating transcription request...');
       const transcript = await client.transcripts.create({
         audio_url: audioFile,
-        speaker_labels: true
+        language_code: 'ru',
+        speaker_labels: true,
+        speakers_expected: 2
       });
       console.log('STEP 3: Transcription request created:', {
         transcriptId: transcript.id,
@@ -133,7 +135,47 @@ app.post('/upload', (req, res) => {
       // Save transcription to file
       console.log('STEP 5: Saving transcription to file...');
       const transcriptionPath = path.join(transcriptionsDir, `${baseName}.txt`);
+      const speakerPath = path.join(transcriptionsDir, `${baseName}_speakers.txt`);
+      const timestampPath = path.join(transcriptionsDir, `${baseName}_timestamps.txt`);
+      const jsonPath = path.join(transcriptionsDir, `${baseName}_full.json`);
+      
+      // Save plain text
       await fs.writeFile(transcriptionPath, finalTranscript.text);
+      
+      // Save speaker-separated transcription with timestamps
+      if (finalTranscript.utterances && finalTranscript.utterances.length > 0) {
+        const speakerText = finalTranscript.utterances
+          .map(utterance => `Speaker ${utterance.speaker}: ${utterance.text}`)
+          .join('\n\n');
+        await fs.writeFile(speakerPath, speakerText);
+        
+        // Save timestamps format for video discussions
+        const timestampText = finalTranscript.utterances
+          .map(utterance => {
+            const startTime = Math.floor(utterance.start / 1000);
+            const startMinutes = Math.floor(startTime / 60);
+            const startSeconds = startTime % 60;
+            const timeFormat = `${startMinutes}:${startSeconds.toString().padStart(2, '0')}`;
+            return `[${timeFormat}] Speaker ${utterance.speaker}: ${utterance.text}`;
+          })
+          .join('\n\n');
+        await fs.writeFile(timestampPath, timestampText);
+        
+        console.log('STEP 5: Speaker transcription saved to:', speakerPath);
+        console.log('STEP 5: Timestamp transcription saved to:', timestampPath);
+      }
+      
+      // Save full JSON with all data for future summarization
+      const fullData = {
+        text: finalTranscript.text,
+        utterances: finalTranscript.utterances,
+        words: finalTranscript.words,
+        confidence: finalTranscript.confidence,
+        audio_duration: finalTranscript.audio_duration
+      };
+      await fs.writeFile(jsonPath, JSON.stringify(fullData, null, 2));
+      console.log('STEP 5: Full JSON data saved to:', jsonPath);
+      
       console.log('STEP 5: Transcription saved to:', transcriptionPath);
 
       // Clean up uploaded file
@@ -144,9 +186,26 @@ app.post('/upload', (req, res) => {
       console.log('=== Upload workflow completed successfully ===');
       res.json({
         success: true,
-        transcription: finalTranscript.text,
-        filename: `${baseName}.txt`,
-        downloadUrl: `/download/${encodeURIComponent(`${baseName}.txt`)}`
+        message: 'Transcription completed successfully',
+        originalFilename: originalName,
+        files: {
+          transcript: {
+            filename: `${baseName}.txt`,
+            downloadUrl: `/download/${encodeURIComponent(`${baseName}.txt`)}`
+          },
+          speakers: {
+            filename: `${baseName}_speakers.txt`,
+            downloadUrl: `/download/${encodeURIComponent(`${baseName}_speakers.txt`)}`
+          },
+          timestamps: {
+            filename: `${baseName}_timestamps.txt`,
+            downloadUrl: `/download/${encodeURIComponent(`${baseName}_timestamps.txt`)}`
+          },
+          fullData: {
+            filename: `${baseName}_full.json`,
+            downloadUrl: `/download/${encodeURIComponent(`${baseName}_full.json`)}`
+          }
+        }
       });
 
     } catch (err) {
@@ -226,7 +285,9 @@ app.post('/upload/batch', (req, res) => {
           console.log(`File ${fileNum} - STEP 3: Creating transcription...`);
           const transcript = await client.transcripts.create({
             audio_url: audioFile,
-            speaker_labels: true
+            language_code: 'ru',
+            speaker_labels: true,
+            speakers_expected: 2
           });
           console.log(`File ${fileNum} - STEP 3: Transcription created:`, transcript.id);
 
@@ -238,7 +299,47 @@ app.post('/upload/batch', (req, res) => {
           // Save transcription to file
           console.log(`File ${fileNum} - STEP 5: Saving transcription...`);
           const transcriptionPath = path.join(transcriptionsDir, `${baseName}.txt`);
+          const speakerPath = path.join(transcriptionsDir, `${baseName}_speakers.txt`);
+          const timestampPath = path.join(transcriptionsDir, `${baseName}_timestamps.txt`);
+          const jsonPath = path.join(transcriptionsDir, `${baseName}_full.json`);
+          
+          // Save plain text
           await fs.writeFile(transcriptionPath, finalTranscript.text);
+          
+          // Save speaker-separated transcription with timestamps
+          if (finalTranscript.utterances && finalTranscript.utterances.length > 0) {
+            const speakerText = finalTranscript.utterances
+              .map(utterance => `Speaker ${utterance.speaker}: ${utterance.text}`)
+              .join('\n\n');
+            await fs.writeFile(speakerPath, speakerText);
+            
+            // Save timestamps format for video discussions
+            const timestampText = finalTranscript.utterances
+              .map(utterance => {
+                const startTime = Math.floor(utterance.start / 1000);
+                const startMinutes = Math.floor(startTime / 60);
+                const startSeconds = startTime % 60;
+                const timeFormat = `${startMinutes}:${startSeconds.toString().padStart(2, '0')}`;
+                return `[${timeFormat}] Speaker ${utterance.speaker}: ${utterance.text}`;
+              })
+              .join('\n\n');
+            await fs.writeFile(timestampPath, timestampText);
+            
+            console.log(`File ${fileNum} - STEP 5: Speaker transcription saved to:`, speakerPath);
+            console.log(`File ${fileNum} - STEP 5: Timestamp transcription saved to:`, timestampPath);
+          }
+          
+          // Save full JSON with all data for future summarization
+          const fullData = {
+            text: finalTranscript.text,
+            utterances: finalTranscript.utterances,
+            words: finalTranscript.words,
+            confidence: finalTranscript.confidence,
+            audio_duration: finalTranscript.audio_duration
+          };
+          await fs.writeFile(jsonPath, JSON.stringify(fullData, null, 2));
+          console.log(`File ${fileNum} - STEP 5: Full JSON data saved to:`, jsonPath);
+          
           console.log(`File ${fileNum} - STEP 5: Saved to:`, transcriptionPath);
 
           // Clean up uploaded file
@@ -247,10 +348,25 @@ app.post('/upload/batch', (req, res) => {
           console.log(`File ${fileNum} - STEP 6: Cleaned up`);
 
           results.push({
-            originalName,
-            transcription: finalTranscript.text,
-            filename: `${baseName}.txt`,
-            downloadUrl: `/download/${encodeURIComponent(`${baseName}.txt`)}`
+            originalFilename: originalName,
+            files: {
+              transcript: {
+                filename: `${baseName}.txt`,
+                downloadUrl: `/download/${encodeURIComponent(`${baseName}.txt`)}`
+              },
+              speakers: {
+                filename: `${baseName}_speakers.txt`,
+                downloadUrl: `/download/${encodeURIComponent(`${baseName}_speakers.txt`)}`
+              },
+              timestamps: {
+                filename: `${baseName}_timestamps.txt`,
+                downloadUrl: `/download/${encodeURIComponent(`${baseName}_timestamps.txt`)}`
+              },
+              fullData: {
+                filename: `${baseName}_full.json`,
+                downloadUrl: `/download/${encodeURIComponent(`${baseName}_full.json`)}`
+              }
+            }
           });
 
           console.log(`File ${fileNum} - SUCCESS: ${originalName} processed successfully`);
