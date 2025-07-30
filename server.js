@@ -4,6 +4,7 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs-extra');
 const { AssemblyAI } = require('assemblyai');
+const ffmpeg = require('fluent-ffmpeg');
 require('dotenv').config();
 
 const app = express();
@@ -21,19 +22,105 @@ app.use(express.static('public'));
 
 // Create directories if they don't exist
 const uploadsDir = path.join(__dirname, 'uploads');
+const videoDir = path.join(uploadsDir, 'video');
+const audioDir = path.join(uploadsDir, 'audio');
 const transcriptionsDir = path.join(__dirname, 'transcriptions');
 const tempDir = path.join(__dirname, 'temp');
 
-[uploadsDir, transcriptionsDir, tempDir].forEach(dir => {
+[uploadsDir, videoDir, audioDir, transcriptionsDir, tempDir].forEach(dir => {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 });
 
+// File type detection
+const isVideoFile = (file) => {
+  const videoMimeTypes = [
+    'video/mp4', 'video/avi', 'video/mov', 'video/wmv', 'video/flv',
+    'video/webm', 'video/x-msvideo', 'video/quicktime'
+  ];
+  
+  const videoExtensions = ['.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm'];
+  const fileExtension = path.extname(file.originalname).toLowerCase();
+  
+  return videoMimeTypes.includes(file.mimetype) || videoExtensions.includes(fileExtension);
+};
+
+const isAudioFile = (file) => {
+  const audioMimeTypes = [
+    'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/m4a', 'audio/aac',
+    'audio/ogg', 'audio/x-m4a', 'audio/mp4', 'audio/x-wav', 'audio/wave',
+    'audio/x-aac'
+  ];
+  
+  const audioExtensions = ['.mp3', '.wav', '.m4a', '.aac', '.ogg'];
+  const fileExtension = path.extname(file.originalname).toLowerCase();
+  
+  return audioMimeTypes.includes(file.mimetype) || audioExtensions.includes(fileExtension);
+};
+
+const getFileDestination = (file) => {
+  if (isVideoFile(file)) {
+    return videoDir;
+  } else if (isAudioFile(file)) {
+    return audioDir;
+  } else {
+    return uploadsDir;
+  }
+};
+
+// Check if FFmpeg is available
+const checkFFmpegAvailability = () => {
+  try {
+    const { execSync } = require('child_process');
+    execSync('ffmpeg -version', { stdio: 'ignore' });
+    return true;
+  } catch (error) {
+    return false;
+  }
+};
+
+// Extract audio from video file
+const extractAudioFromVideo = (inputPath, outputPath) => {
+  return new Promise((resolve, reject) => {
+    console.log(`Extracting audio from video: ${inputPath} -> ${outputPath}`);
+    
+    // Check if FFmpeg is available
+    if (!checkFFmpegAvailability()) {
+      const error = new Error('FFmpeg is not installed. Please install FFmpeg to process video files. Installation: sudo apt-get install ffmpeg (Ubuntu/Debian) or brew install ffmpeg (macOS)');
+      console.error('FFmpeg not available:', error.message);
+      reject(error);
+      return;
+    }
+    
+    ffmpeg(inputPath)
+      .audioCodec('aac')
+      .audioChannels(2)
+      .audioFrequency(44100)
+      .format('mp4')
+      .on('start', (commandLine) => {
+        console.log('FFmpeg process started:', commandLine);
+      })
+      .on('progress', (progress) => {
+        console.log('FFmpeg progress:', Math.round(progress.percent || 0) + '%');
+      })
+      .on('end', () => {
+        console.log('Audio extraction completed successfully');
+        resolve(outputPath);
+      })
+      .on('error', (err) => {
+        console.error('FFmpeg error:', err);
+        reject(new Error(`Audio extraction failed: ${err.message}`));
+      })
+      .save(outputPath);
+  });
+};
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, uploadsDir);
+    const destination = getFileDestination(file);
+    cb(null, destination);
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -91,20 +178,37 @@ app.post('/upload', (req, res) => {
         return res.status(400).json({ error: 'No file uploaded' });
       }
 
-      const filePath = req.file.path;
+      let filePath = req.file.path;
       const originalName = req.file.originalname;
       const baseName = path.parse(originalName).name;
+      let audioFilePath = filePath;
 
       console.log('STEP 1: File received:', {
         originalName,
         filePath,
         fileSize: req.file.size,
-        mimeType: req.file.mimetype
+        mimeType: req.file.mimetype,
+        isVideo: isVideoFile(req.file)
       });
+      
+      // Check if file is video and extract audio if needed
+      if (isVideoFile(req.file)) {
+        console.log('STEP 1.5: Video file detected, extracting audio...');
+        const audioFileName = `${baseName}_audio.m4a`;
+        audioFilePath = path.join(tempDir, audioFileName);
+        
+        try {
+          await extractAudioFromVideo(filePath, audioFilePath);
+          console.log('STEP 1.5: Audio extraction completed:', audioFilePath);
+        } catch (extractError) {
+          console.error('STEP 1.5: Audio extraction failed:', extractError);
+          throw new Error(`Failed to extract audio from video: ${extractError.message}`);
+        }
+      }
       
       // Upload to AssemblyAI
       console.log('STEP 2: Uploading file to AssemblyAI...');
-      const audioFile = await client.files.upload(filePath);
+      const audioFile = await client.files.upload(audioFilePath);
       console.log('STEP 2: File uploaded successfully to AssemblyAI:', {
         uploadUrl: audioFile,
         fileName: originalName
@@ -134,10 +238,15 @@ app.post('/upload', (req, res) => {
 
       // Save transcription to file
       console.log('STEP 5: Saving transcription to file...');
-      const transcriptionPath = path.join(transcriptionsDir, `${baseName}.txt`);
-      const speakerPath = path.join(transcriptionsDir, `${baseName}_speakers.txt`);
-      const timestampPath = path.join(transcriptionsDir, `${baseName}_timestamps.txt`);
-      const jsonPath = path.join(transcriptionsDir, `${baseName}_full.json`);
+      const fileTranscriptionsDir = path.join(transcriptionsDir, baseName);
+      if (!fs.existsSync(fileTranscriptionsDir)) {
+        fs.mkdirSync(fileTranscriptionsDir, { recursive: true });
+      }
+      
+      const transcriptionPath = path.join(fileTranscriptionsDir, `${baseName}.txt`);
+      const speakerPath = path.join(fileTranscriptionsDir, `${baseName}_speakers.txt`);
+      const timestampPath = path.join(fileTranscriptionsDir, `${baseName}_timestamps.txt`);
+      const jsonPath = path.join(fileTranscriptionsDir, `${baseName}_full.json`);
       
       // Save plain text
       await fs.writeFile(transcriptionPath, finalTranscript.text);
@@ -178,9 +287,13 @@ app.post('/upload', (req, res) => {
       
       console.log('STEP 5: Transcription saved to:', transcriptionPath);
 
-      // Clean up uploaded file
-      console.log('STEP 6: Cleaning up uploaded file...');
+      // Clean up uploaded file and extracted audio
+      console.log('STEP 6: Cleaning up files...');
       await fs.remove(filePath);
+      if (audioFilePath !== filePath) {
+        await fs.remove(audioFilePath);
+        console.log('STEP 6: Extracted audio file cleaned up');
+      }
       console.log('STEP 6: Uploaded file cleaned up');
 
       console.log('=== Upload workflow completed successfully ===');
@@ -191,19 +304,19 @@ app.post('/upload', (req, res) => {
         files: {
           transcript: {
             filename: `${baseName}.txt`,
-            downloadUrl: `/download/${encodeURIComponent(`${baseName}.txt`)}`
+            downloadUrl: `/download/${encodeURIComponent(`${baseName}/${baseName}.txt`)}`
           },
           speakers: {
             filename: `${baseName}_speakers.txt`,
-            downloadUrl: `/download/${encodeURIComponent(`${baseName}_speakers.txt`)}`
+            downloadUrl: `/download/${encodeURIComponent(`${baseName}/${baseName}_speakers.txt`)}`
           },
           timestamps: {
             filename: `${baseName}_timestamps.txt`,
-            downloadUrl: `/download/${encodeURIComponent(`${baseName}_timestamps.txt`)}`
+            downloadUrl: `/download/${encodeURIComponent(`${baseName}/${baseName}_timestamps.txt`)}`
           },
           fullData: {
             filename: `${baseName}_full.json`,
-            downloadUrl: `/download/${encodeURIComponent(`${baseName}_full.json`)}`
+            downloadUrl: `/download/${encodeURIComponent(`${baseName}/${baseName}_full.json`)}`
           }
         }
       });
@@ -217,10 +330,15 @@ app.post('/upload', (req, res) => {
         fileName: req.file?.originalname || 'unknown'
       });
       
-      // Clean up uploaded file on error
+      // Clean up uploaded file and extracted audio on error
       if (req.file && req.file.path) {
         await fs.remove(req.file.path).catch(cleanupErr => {
-          console.error('Failed to clean up file after error:', cleanupErr);
+          console.error('Failed to clean up uploaded file after error:', cleanupErr);
+        });
+      }
+      if (audioFilePath && audioFilePath !== req.file?.path) {
+        await fs.remove(audioFilePath).catch(cleanupErr => {
+          console.error('Failed to clean up extracted audio file after error:', cleanupErr);
         });
       }
       
@@ -265,20 +383,37 @@ app.post('/upload/batch', (req, res) => {
         try {
           console.log(`--- Processing file ${fileNum}/${req.files.length}: ${file.originalname} ---`);
           
-          const filePath = file.path;
+          let filePath = file.path;
           const originalName = file.originalname;
           const baseName = path.parse(originalName).name;
+          let audioFilePath = filePath;
 
           console.log(`File ${fileNum} - STEP 1: File details:`, {
             originalName,
             filePath,
             fileSize: file.size,
-            mimeType: file.mimetype
+            mimeType: file.mimetype,
+            isVideo: isVideoFile(file)
           });
+
+          // Check if file is video and extract audio if needed
+          if (isVideoFile(file)) {
+            console.log(`File ${fileNum} - STEP 1.5: Video file detected, extracting audio...`);
+            const audioFileName = `${baseName}_audio_${fileNum}.m4a`;
+            audioFilePath = path.join(tempDir, audioFileName);
+            
+            try {
+              await extractAudioFromVideo(filePath, audioFilePath);
+              console.log(`File ${fileNum} - STEP 1.5: Audio extraction completed:`, audioFilePath);
+            } catch (extractError) {
+              console.error(`File ${fileNum} - STEP 1.5: Audio extraction failed:`, extractError);
+              throw new Error(`Failed to extract audio from video: ${extractError.message}`);
+            }
+          }
 
           // Upload to AssemblyAI
           console.log(`File ${fileNum} - STEP 2: Uploading to AssemblyAI...`);
-          const audioFile = await client.files.upload(filePath);
+          const audioFile = await client.files.upload(audioFilePath);
           console.log(`File ${fileNum} - STEP 2: Uploaded successfully:`, audioFile);
           
           // Create transcription
@@ -298,10 +433,15 @@ app.post('/upload/batch', (req, res) => {
 
           // Save transcription to file
           console.log(`File ${fileNum} - STEP 5: Saving transcription...`);
-          const transcriptionPath = path.join(transcriptionsDir, `${baseName}.txt`);
-          const speakerPath = path.join(transcriptionsDir, `${baseName}_speakers.txt`);
-          const timestampPath = path.join(transcriptionsDir, `${baseName}_timestamps.txt`);
-          const jsonPath = path.join(transcriptionsDir, `${baseName}_full.json`);
+          const fileTranscriptionsDir = path.join(transcriptionsDir, baseName);
+          if (!fs.existsSync(fileTranscriptionsDir)) {
+            fs.mkdirSync(fileTranscriptionsDir, { recursive: true });
+          }
+          
+          const transcriptionPath = path.join(fileTranscriptionsDir, `${baseName}.txt`);
+          const speakerPath = path.join(fileTranscriptionsDir, `${baseName}_speakers.txt`);
+          const timestampPath = path.join(fileTranscriptionsDir, `${baseName}_timestamps.txt`);
+          const jsonPath = path.join(fileTranscriptionsDir, `${baseName}_full.json`);
           
           // Save plain text
           await fs.writeFile(transcriptionPath, finalTranscript.text);
@@ -342,9 +482,13 @@ app.post('/upload/batch', (req, res) => {
           
           console.log(`File ${fileNum} - STEP 5: Saved to:`, transcriptionPath);
 
-          // Clean up uploaded file
+          // Clean up uploaded file and extracted audio
           console.log(`File ${fileNum} - STEP 6: Cleaning up...`);
           await fs.remove(filePath);
+          if (audioFilePath !== filePath) {
+            await fs.remove(audioFilePath);
+            console.log(`File ${fileNum} - STEP 6: Extracted audio file cleaned up`);
+          }
           console.log(`File ${fileNum} - STEP 6: Cleaned up`);
 
           results.push({
@@ -352,19 +496,19 @@ app.post('/upload/batch', (req, res) => {
             files: {
               transcript: {
                 filename: `${baseName}.txt`,
-                downloadUrl: `/download/${encodeURIComponent(`${baseName}.txt`)}`
+                downloadUrl: `/download/${encodeURIComponent(`${baseName}/${baseName}.txt`)}`
               },
               speakers: {
                 filename: `${baseName}_speakers.txt`,
-                downloadUrl: `/download/${encodeURIComponent(`${baseName}_speakers.txt`)}`
+                downloadUrl: `/download/${encodeURIComponent(`${baseName}/${baseName}_speakers.txt`)}`
               },
               timestamps: {
                 filename: `${baseName}_timestamps.txt`,
-                downloadUrl: `/download/${encodeURIComponent(`${baseName}_timestamps.txt`)}`
+                downloadUrl: `/download/${encodeURIComponent(`${baseName}/${baseName}_timestamps.txt`)}`
               },
               fullData: {
                 filename: `${baseName}_full.json`,
-                downloadUrl: `/download/${encodeURIComponent(`${baseName}_full.json`)}`
+                downloadUrl: `/download/${encodeURIComponent(`${baseName}/${baseName}_full.json`)}`
               }
             }
           });
@@ -384,10 +528,15 @@ app.post('/upload/batch', (req, res) => {
             error: error.message
           });
           
-          // Clean up file on error
+          // Clean up file and extracted audio on error
           await fs.remove(file.path).catch(cleanupErr => {
             console.error(`Failed to clean up file ${file.originalname}:`, cleanupErr);
           });
+          if (audioFilePath && audioFilePath !== file.path) {
+            await fs.remove(audioFilePath).catch(cleanupErr => {
+              console.error(`Failed to clean up extracted audio for ${file.originalname}:`, cleanupErr);
+            });
+          }
         }
       }
 
@@ -435,9 +584,9 @@ app.post('/upload/batch', (req, res) => {
 });
 
 // Download transcription file
-app.get('/download/:filename', (req, res) => {
-  const filename = decodeURIComponent(req.params.filename);
-  const filePath = path.join(transcriptionsDir, filename);
+app.get('/download/:filepath(*)', (req, res) => {
+  const filepath = decodeURIComponent(req.params.filepath);
+  const filePath = path.join(transcriptionsDir, filepath);
   
   if (fs.existsSync(filePath)) {
     res.download(filePath);
