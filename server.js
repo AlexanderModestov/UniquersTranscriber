@@ -11,8 +11,11 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Initialize AssemblyAI client
+const apiKey = process.env.ASSEMBLYAI_API_KEY;
+console.log('AssemblyAI API Key loaded:', apiKey ? `${apiKey.substring(0, 8)}...${apiKey.substring(apiKey.length - 4)}` : 'NOT FOUND');
+
 const client = new AssemblyAI({
-  apiKey: process.env.ASSEMBLYAI_API_KEY
+  apiKey: apiKey
 });
 
 // Middleware
@@ -123,8 +126,8 @@ const storage = multer.diskStorage({
     cb(null, destination);
   },
   filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+    // Use original filename as-is
+    cb(null, file.originalname);
   }
 });
 
