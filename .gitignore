@@ -10,3 +10,4 @@ node_modules/
 # Application specific
 uploads/
 transcriptions/
+data/
