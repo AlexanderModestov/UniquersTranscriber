@@ -134,7 +134,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 100 * 1024 * 1024 // 100MB limit
+    fileSize: 500 * 1024 * 1024 // 500MB limit for large audio files
   },
   fileFilter: (req, file, cb) => {
     const allowedTypes = [
@@ -222,8 +222,8 @@ app.post('/upload', (req, res) => {
       const transcript = await client.transcripts.create({
         audio_url: audioFile,
         language_code: 'ru',
-        speaker_labels: true,
-        speakers_expected: 2
+        speaker_labels: true
+        // speakers_expected: 2,  // Remove this line
       });
       console.log('STEP 3: Transcription request created:', {
         transcriptId: transcript.id,
@@ -292,12 +292,12 @@ app.post('/upload', (req, res) => {
 
       // Clean up uploaded file and extracted audio
       console.log('STEP 6: Cleaning up files...');
-      await fs.remove(filePath);
-      if (audioFilePath !== filePath) {
-        await fs.remove(audioFilePath);
-        console.log('STEP 6: Extracted audio file cleaned up');
-      }
-      console.log('STEP 6: Uploaded file cleaned up');
+      //await fs.remove(filePath);
+      //if (audioFilePath !== filePath) {
+      //  await fs.remove(audioFilePath);
+      //  console.log('STEP 6: Extracted audio file cleaned up');
+      //}
+      //console.log('STEP 6: Uploaded file cleaned up');
 
       console.log('=== Upload workflow completed successfully ===');
       res.json({
@@ -339,10 +339,15 @@ app.post('/upload', (req, res) => {
           console.error('Failed to clean up uploaded file after error:', cleanupErr);
         });
       }
-      if (audioFilePath && audioFilePath !== req.file?.path) {
-        await fs.remove(audioFilePath).catch(cleanupErr => {
-          console.error('Failed to clean up extracted audio file after error:', cleanupErr);
-        });
+      // Only clean up audioFilePath if it was defined and different from the original file
+      try {
+        if (typeof audioFilePath !== 'undefined' && audioFilePath && audioFilePath !== req.file?.path) {
+          await fs.remove(audioFilePath).catch(cleanupErr => {
+            console.error('Failed to clean up extracted audio file after error:', cleanupErr);
+          });
+        }
+      } catch (cleanupErr) {
+        console.error('Error in audio file cleanup:', cleanupErr);
       }
       
       res.status(500).json({ 
@@ -424,8 +429,8 @@ app.post('/upload/batch', (req, res) => {
           const transcript = await client.transcripts.create({
             audio_url: audioFile,
             language_code: 'ru',
-            speaker_labels: true,
-            speakers_expected: 2
+            speaker_labels: true
+            // speakers_expected: 2,  // Remove this line
           });
           console.log(`File ${fileNum} - STEP 3: Transcription created:`, transcript.id);
 
@@ -486,13 +491,13 @@ app.post('/upload/batch', (req, res) => {
           console.log(`File ${fileNum} - STEP 5: Saved to:`, transcriptionPath);
 
           // Clean up uploaded file and extracted audio
-          console.log(`File ${fileNum} - STEP 6: Cleaning up...`);
-          await fs.remove(filePath);
-          if (audioFilePath !== filePath) {
-            await fs.remove(audioFilePath);
-            console.log(`File ${fileNum} - STEP 6: Extracted audio file cleaned up`);
-          }
-          console.log(`File ${fileNum} - STEP 6: Cleaned up`);
+          //console.log(`File ${fileNum} - STEP 6: Cleaning up...`);
+          //await fs.remove(filePath);
+          //if (audioFilePath !== filePath) {
+          //  await fs.remove(audioFilePath);
+          //  console.log(`File ${fileNum} - STEP 6: Extracted audio file cleaned up`);
+          //}
+          // console.log(`File ${fileNum} - STEP 6: Cleaned up`);
 
           results.push({
             originalFilename: originalName,
@@ -535,10 +540,15 @@ app.post('/upload/batch', (req, res) => {
           await fs.remove(file.path).catch(cleanupErr => {
             console.error(`Failed to clean up file ${file.originalname}:`, cleanupErr);
           });
-          if (audioFilePath && audioFilePath !== file.path) {
-            await fs.remove(audioFilePath).catch(cleanupErr => {
-              console.error(`Failed to clean up extracted audio for ${file.originalname}:`, cleanupErr);
-            });
+          // Only clean up audioFilePath if it was defined and different from the original file
+          try {
+            if (typeof audioFilePath !== 'undefined' && audioFilePath && audioFilePath !== file.path) {
+              await fs.remove(audioFilePath).catch(cleanupErr => {
+                console.error(`Failed to clean up extracted audio for ${file.originalname}:`, cleanupErr);
+              });
+            }
+          } catch (cleanupErr) {
+            console.error(`Error in audio file cleanup for ${file.originalname}:`, cleanupErr);
           }
         }
       }

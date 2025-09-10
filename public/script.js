@@ -71,7 +71,7 @@ class TranscriptionApp {
                 return false;
             }
 
-            if (file.size > 100 * 1024 * 1024) { // 100MB
+            if (file.size > 500 * 1024 * 1024) { // 500MB
                 this.showError(`File too large: ${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`);
                 return false;
             }
@@ -115,7 +115,7 @@ class TranscriptionApp {
                 <h3>Drag & Drop Files Here</h3>
                 <p>or click to browse</p>
                 <p class="file-types">Supported: MP3, MP4, WAV, M4A, AAC, AVI, MOV, WMV, FLV, OGG, WEBM</p>
-                <p class="file-limit">Max file size: 100MB</p>
+                <p class="file-limit">Max file size: 500MB</p>
             `;
         }
     }

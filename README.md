@@ -194,3 +194,22 @@ For issues related to:
 ---
 
 **Note**: This application requires an active AssemblyAI account and API key to function. AssemblyAI offers free credits for new users. 
+
+node cli-transcriber.js transcribe path/to/your/audio-or-video-file.mp4
+
+Or if you want to transcribe multiple files:
+
+  node cli-transcriber.js transcribe file1.mp3 file2.wav video.mp4
+
+  With options:
+  node cli-transcriber.js transcribe --language en --speakers 3 recording.mp3
+
+Usage:
+# Process all files
+python3 transcribe-analyzer/transcript_analyzer.py
+
+# Process specific file  
+python3 transcribe-analyzer/transcript_analyzer.py -f path/to/timestamps.txt
+
+# With OpenAI API key
+python3 transcribe-analyzer/transcript_analyzer.py --openai-key your_key
